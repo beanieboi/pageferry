@@ -1,0 +1,7 @@
+/pageferry
+/pageferry-linux-arm64
+/.DS_Store
+/.paperless-token
+/.paperless-url
+/.env
+/config.local.json
