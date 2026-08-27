@@ -1,0 +1,24 @@
+[Unit]
+Description=PageFerry reliable scanner-to-Paperless queue
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=saned
+Group=scanner
+UMask=0077
+StateDirectory=pageferry
+StateDirectoryMode=0700
+ExecStart=/usr/local/sbin/pageferry run --config /etc/pageferry/config.json
+Restart=always
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/pageferry
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,29 @@
+{
+  "spool_dir": "/var/lib/pageferry",
+  "paperless_env_file": "/etc/pageferry/paperless.env",
+  "device": "fujitsu:ScanSnap iX1300:1801717",
+  "sane_config_dir": "/etc/scanbd",
+  "source": "ADF Duplex",
+  "mode": "Color",
+  "resolution_dpi": 300,
+  "page_width_mm": 210,
+  "page_height_mm": 297,
+  "pdf_quality": 85,
+  "scan_options": [
+    "--ald=yes",
+    "--buffermode=On",
+    "--prepick=On",
+    "--swcrop=no",
+    "--swdeskew=no"
+  ],
+  "scanimage_path": "/usr/bin/scanimage",
+  "tiffcp_path": "/usr/bin/tiffcp",
+  "tiff2pdf_path": "/usr/bin/tiff2pdf",
+  "pdfinfo_path": "/usr/bin/pdfinfo",
+  "min_free_bytes": 1073741824,
+  "poll_interval": "5s",
+  "retry_initial": "30s",
+  "retry_maximum": "30m",
+  "http_timeout": "10m",
+  "completed_retention": "30d"
+}
