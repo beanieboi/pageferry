@@ -16,6 +16,12 @@
     "--swcrop=no",
     "--swdeskew=no"
   ],
+  "color_resolution_dpi": 200,
+  "max_pdf_bytes": 1048576,
+  "skip_blank_pages": true,
+  "blank_page_threshold_mm2": 100,
+  "color_threshold_mm2": 15,
+  "gray_threshold_mm2": 400,
   "scanimage_path": "/usr/bin/scanimage",
   "tiffcp_path": "/usr/bin/tiffcp",
   "tiff2pdf_path": "/usr/bin/tiff2pdf",

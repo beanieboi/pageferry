@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/beanieboi/pageferry/internal/imaging"
 )
 
 type Config struct {
@@ -25,6 +27,13 @@ type Config struct {
 	PageHeightMM  int      `json:"page_height_mm"`
 	PDFQuality    int      `json:"pdf_quality"`
 	ScanOptions   []string `json:"scan_options"`
+
+	ColorResolutionDPI    int     `json:"color_resolution_dpi"`
+	MaxPDFBytes           int64   `json:"max_pdf_bytes"`
+	SkipBlankPages        bool    `json:"skip_blank_pages"`
+	BlankPageThresholdMM2 float64 `json:"blank_page_threshold_mm2"`
+	ColorThresholdMM2     float64 `json:"color_threshold_mm2"`
+	GrayThresholdMM2      float64 `json:"gray_threshold_mm2"`
 
 	ScanimagePath string `json:"scanimage_path"`
 	TIFFCPPath    string `json:"tiffcp_path"`
@@ -60,6 +69,13 @@ func Default() Config {
 		RetryMaximum:       "30m",
 		HTTPTimeout:        "10m",
 		CompletedRetention: "30d",
+
+		ColorResolutionDPI:    200,
+		MaxPDFBytes:           1 << 20,
+		SkipBlankPages:        true,
+		BlankPageThresholdMM2: imaging.DefaultThresholds.BlankContentMM2,
+		ColorThresholdMM2:     imaging.DefaultThresholds.ColorMM2,
+		GrayThresholdMM2:      imaging.DefaultThresholds.GrayMM2,
 	}
 }
 
@@ -100,6 +116,15 @@ func (c Config) Validate() error {
 	}
 	if c.PDFQuality < 1 || c.PDFQuality > 100 {
 		return errors.New("pdf_quality must be between 1 and 100")
+	}
+	if c.ColorResolutionDPI < 50 || c.ColorResolutionDPI > c.ResolutionDPI {
+		return errors.New("color_resolution_dpi must be between 50 and resolution_dpi")
+	}
+	if c.MaxPDFBytes < 0 {
+		return errors.New("max_pdf_bytes must not be negative (0 disables the limit)")
+	}
+	if c.BlankPageThresholdMM2 < 0 || c.ColorThresholdMM2 < 0 || c.GrayThresholdMM2 < 0 {
+		return errors.New("blank_page_threshold_mm2, color_threshold_mm2, and gray_threshold_mm2 must not be negative")
 	}
 	for _, option := range c.ScanOptions {
 		if option == "" || strings.HasPrefix(option, "--batch") || strings.HasPrefix(option, "--device-name") || strings.HasPrefix(option, "--format") {

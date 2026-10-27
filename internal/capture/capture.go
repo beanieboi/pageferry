@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -18,6 +20,7 @@ import (
 	"time"
 
 	"github.com/beanieboi/pageferry/internal/config"
+	"github.com/beanieboi/pageferry/internal/imaging"
 	"github.com/beanieboi/pageferry/internal/spool"
 )
 
@@ -54,7 +57,7 @@ func (c *Capturer) Run(ctx context.Context) (job spool.Job, returnErr error) {
 		if committed {
 			return
 		}
-		pages, _ := filepath.Glob(filepath.Join(work, "page-*.tif"))
+		pages, _ := filepath.Glob(filepath.Join(work, "page-*.pnm"))
 		if len(pages) == 0 {
 			_ = os.RemoveAll(work)
 			return
@@ -66,12 +69,12 @@ func (c *Capturer) Run(ctx context.Context) (job spool.Job, returnErr error) {
 		}
 	}()
 
-	pagePattern := filepath.Join(work, "page-%04d.tif")
+	pagePattern := filepath.Join(work, "page-%04d.pnm")
 	device := c.Config.Device
 	if scanbdDevice := os.Getenv("SCANBD_DEVICE"); scanbdDevice != "" {
 		device = scanbdDevice
 	}
-	args := []string{"--batch=" + pagePattern, "--format=tiff", "--source", c.Config.Source,
+	args := []string{"--batch=" + pagePattern, "--format=pnm", "--source", c.Config.Source,
 		"--mode", c.Config.Mode, "--resolution", strconv.Itoa(c.Config.ResolutionDPI),
 		"--page-width", strconv.Itoa(c.Config.PageWidthMM), "--page-height", strconv.Itoa(c.Config.PageHeightMM)}
 	args = append(args, c.Config.ScanOptions...)
@@ -81,33 +84,21 @@ func (c *Capturer) Run(ctx context.Context) (job spool.Job, returnErr error) {
 	if err := c.command(ctx, c.Config.ScanimagePath, args...); err != nil {
 		return job, fmt.Errorf("scan pages: %w", err)
 	}
-	pages, err := filepath.Glob(filepath.Join(work, "page-*.tif"))
-	if err != nil || len(pages) == 0 {
+	scans, err := filepath.Glob(filepath.Join(work, "page-*.pnm"))
+	if err != nil || len(scans) == 0 {
 		return job, errors.New("scanner returned no pages")
 	}
-
-	combined := filepath.Join(work, "combined.tif")
-	tiffArgs := append([]string{"-c", "zip"}, pages...)
-	tiffArgs = append(tiffArgs, combined)
-	if err := c.command(ctx, c.Config.TIFFCPPath, tiffArgs...); err != nil {
-		return job, fmt.Errorf("combine TIFF pages: %w", err)
-	}
-	filename := fmt.Sprintf("scan-%s-%s.pdf", now.Format("2006-01-02_15-04-05"), shortID(id))
-	pdfPath := filepath.Join(work, filename)
-	if err := c.command(ctx, c.Config.TIFF2PDFPath, "-j", "-q", strconv.Itoa(c.Config.PDFQuality), "-o", pdfPath, combined); err != nil {
-		return job, fmt.Errorf("create PDF: %w", err)
-	}
-	info, err := c.commandOutput(ctx, c.Config.PDFInfoPath, pdfPath)
-	if err != nil {
-		return job, fmt.Errorf("validate PDF: %w", err)
-	}
-	pageCount, err := parsePageCount(info)
+	pages, err := c.analyze(id, scans)
 	if err != nil {
 		return job, err
 	}
-	if pageCount != len(pages) {
-		return job, fmt.Errorf("PDF contains %d pages but scanner produced %d", pageCount, len(pages))
+
+	filename := fmt.Sprintf("scan-%s-%s.pdf", now.Format("2006-01-02_15-04-05"), shortID(id))
+	pdfPath := filepath.Join(work, filename)
+	if err := c.buildPDF(ctx, id, work, pages, pdfPath); err != nil {
+		return job, err
 	}
+	pageCount := len(pages)
 
 	file, err := os.OpenFile(pdfPath, os.O_RDWR, 0)
 	if err != nil {
@@ -129,7 +120,7 @@ func (c *Capturer) Run(ctx context.Context) (job spool.Job, returnErr error) {
 		return job, err
 	}
 
-	for _, path := range append(pages, combined) {
+	for _, path := range scans {
 		if err := os.Remove(path); err != nil {
 			return job, fmt.Errorf("remove intermediate %s: %w", path, err)
 		}
@@ -141,6 +132,144 @@ func (c *Capturer) Run(ctx context.Context) (job spool.Job, returnErr error) {
 	committed = true
 	c.Logger.Info("scan queued durably", "job_id", id, "filename", filename, "pages", pageCount, "bytes", stat.Size())
 	return job, nil
+}
+
+type page struct {
+	scan     string
+	analysis imaging.Analysis
+}
+
+// analyze classifies the scanned pages and leaves out blank ones, unless
+// all of them are blank.
+func (c *Capturer) analyze(id string, scans []string) ([]page, error) {
+	thresholds := imaging.Thresholds{
+		BlankContentMM2: c.Config.BlankPageThresholdMM2,
+		ColorMM2:        c.Config.ColorThresholdMM2,
+		GrayMM2:         c.Config.GrayThresholdMM2,
+	}
+	var pages, blank []page
+	for i, scan := range scans {
+		img, err := imaging.ReadPNMFile(scan)
+		if err != nil {
+			return nil, fmt.Errorf("read scanned page: %w", err)
+		}
+		a := imaging.Analyze(img, c.Config.ResolutionDPI, thresholds)
+		c.Logger.Info("page analyzed", "job_id", id, "page", i+1, "class", a.Class, "blank", a.Blank,
+			"content_mm2", math.Round(a.ContentMM2), "color_mm2", math.Round(a.ColorMM2), "gray_mm2", math.Round(a.GrayMM2),
+			"paper", a.Paper, "threshold", a.Threshold)
+		p := page{scan: scan, analysis: a}
+		if a.Blank && c.Config.SkipBlankPages {
+			blank = append(blank, p)
+			continue
+		}
+		pages = append(pages, p)
+	}
+	if len(pages) == 0 {
+		c.Logger.Warn("every page looks blank; keeping them all", "job_id", id, "pages", len(blank))
+		return blank, nil
+	}
+	if len(blank) > 0 {
+		c.Logger.Info("blank pages skipped", "job_id", id, "skipped", len(blank), "kept", len(pages))
+	}
+	return pages, nil
+}
+
+// buildPDF writes the pages to pdfPath: black and white pages at the scan
+// resolution (CCITT G4), color and grayscale pages as JPEG at
+// color_resolution_dpi. While the PDF exceeds max_pdf_bytes, the color and
+// grayscale pages are made smaller: first their resolution, down to
+// minColorDPI, then their JPEG quality, down to minPDFQuality. Below that,
+// Paperless's OCR suffers more than its viewer benefits.
+func (c *Capturer) buildPDF(ctx context.Context, id, work string, pages []page, pdfPath string) error {
+	images := 0
+	for _, p := range pages {
+		if p.analysis.Class != imaging.BW {
+			images++
+		}
+	}
+	dpi, quality := c.Config.ColorResolutionDPI, c.Config.PDFQuality
+	limit := c.Config.MaxPDFBytes
+	for {
+		size, err := c.writePDF(ctx, work, pages, dpi, quality, pdfPath)
+		if err != nil {
+			return err
+		}
+		if limit == 0 || size <= limit || images == 0 {
+			return nil
+		}
+		switch {
+		case dpi > minColorDPI:
+			dpi = max(minColorDPI, dpi*3/4)
+		case quality > minPDFQuality:
+			quality = max(minPDFQuality, quality-10)
+		default:
+			c.Logger.Warn("PDF is larger than max_pdf_bytes", "job_id", id, "bytes", size, "max_pdf_bytes", limit)
+			return nil
+		}
+		c.Logger.Info("PDF too large; shrinking color pages", "job_id", id, "bytes", size, "max_pdf_bytes", limit, "dpi", dpi, "quality", quality)
+	}
+}
+
+const minColorDPI, minPDFQuality = 150, 50
+
+func (c *Capturer) writePDF(ctx context.Context, work string, pages []page, colorDPI, quality int, pdfPath string) (size int64, returnErr error) {
+	combined := filepath.Join(work, "combined.tif")
+	var tiffs []string
+	defer func() {
+		for _, path := range append(tiffs, combined) {
+			if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) && returnErr == nil {
+				returnErr = fmt.Errorf("remove intermediate %s: %w", path, err)
+			}
+		}
+	}()
+	for i, p := range pages {
+		img, err := imaging.ReadPNMFile(p.scan)
+		if err != nil {
+			return 0, fmt.Errorf("read scanned page: %w", err)
+		}
+		path := filepath.Join(work, fmt.Sprintf("out-%04d.tif", i+1))
+		dpi := float64(c.Config.ResolutionDPI)
+		switch p.analysis.Class {
+		case imaging.BW:
+			err = img.Threshold(p.analysis.Threshold).WriteTIFFFile(path, dpi)
+		default:
+			if p.analysis.Class == imaging.Gray {
+				img = img.Gray()
+			}
+			img.Whiten(p.analysis.Paper)
+			width := int(math.Round(float64(img.Width) * float64(colorDPI) / dpi))
+			height := int(math.Round(float64(img.Height) * float64(colorDPI) / dpi))
+			scaled := img.Downscale(width, height)
+			err = scaled.WriteTIFFFile(path, dpi*float64(scaled.Width)/float64(img.Width))
+		}
+		tiffs = append(tiffs, path)
+		if err != nil {
+			return 0, fmt.Errorf("write page %d: %w", i+1, err)
+		}
+	}
+
+	if err := c.command(ctx, c.Config.TIFFCPPath, append(tiffs, combined)...); err != nil {
+		return 0, fmt.Errorf("combine TIFF pages: %w", err)
+	}
+	if err := c.command(ctx, c.Config.TIFF2PDFPath, "-j", "-q", strconv.Itoa(quality), "-o", pdfPath, combined); err != nil {
+		return 0, fmt.Errorf("create PDF: %w", err)
+	}
+	info, err := c.commandOutput(ctx, c.Config.PDFInfoPath, pdfPath)
+	if err != nil {
+		return 0, fmt.Errorf("validate PDF: %w", err)
+	}
+	pageCount, err := parsePageCount(info)
+	if err != nil {
+		return 0, err
+	}
+	if pageCount != len(pages) {
+		return 0, fmt.Errorf("PDF contains %d pages but %d were kept", pageCount, len(pages))
+	}
+	stat, err := os.Stat(pdfPath)
+	if err != nil {
+		return 0, err
+	}
+	return stat.Size(), nil
 }
 
 func (c *Capturer) command(ctx context.Context, path string, args ...string) error {

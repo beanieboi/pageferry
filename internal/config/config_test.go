@@ -56,3 +56,11 @@ func TestPaperlessCredentialsRejectsDuplicate(t *testing.T) {
 		t.Fatal("expected duplicate-key error")
 	}
 }
+
+func TestValidateColorResolution(t *testing.T) {
+	c := Default()
+	c.ColorResolutionDPI = c.ResolutionDPI + 1
+	if err := c.Validate(); err == nil {
+		t.Fatal("accepted a color resolution above the scan resolution")
+	}
+}
