@@ -63,12 +63,14 @@ One button press drains every sheet currently in the ADF into one multi-page PDF
 
 Each scanned page is analyzed in cells of about 0.34 mm, leaving out an 8 mm margin at the top and bottom and 16 mm at the sides, where the paper edge, its shadow, and punch holes are.
 
-- **Blank pages**: a page with less than `blank_page_threshold_mm2` (100 mm²) of content is left out. Content is connected ink that is neither dust (smaller than 2 mm²) nor a line thinner than 1 mm, such as a fold crease. Bleed-through from the other side is lighter than ink and does not count. If every page of a scan is blank, all are kept.
+- **Blank pages**: a page with less than `blank_page_threshold_mm2` (100 mm²) of content is left out. Content is connected ink that is neither dust (smaller than 2 mm²) nor a line thinner than 1 mm, such as a fold crease. Bleed-through from the other side is lighter than ink and does not count; pencil and faded receipts do. A page with color (see below) is never blank, so faint colored writing is kept. If every page of a scan is blank, all are kept.
 - **Color**: a page with more than `color_threshold_mm2` (15 mm², a 4 x 4 mm logo) of clearly colored area stays in color. Colored stamps, logos, and pen marks count; the color fringes scanners leave along black text, and lightly tinted paper, do not.
 - **Grayscale**: a page without color but with more than `gray_threshold_mm2` (400 mm²) of evenly gray area, such as a photo or shading, is stored in grayscale.
 - **Black and white**: every other page is thresholded at the scan resolution and stored with CCITT G4, typically 20 to 80 KB per page.
 
 Color and grayscale pages are reduced to `color_resolution_dpi`, the paper's texture is whitened, and they are stored as JPEG, about 150 to 400 KB per A4 page at 200 DPI. While the PDF is larger than `max_pdf_bytes`, PageFerry lowers their resolution to 150 DPI and then their JPEG quality to 50; below that Paperless's OCR would suffer. A PDF that is still too large is kept and logged.
+
+`pageferry reprocess IN.pdf OUT.pdf` treats an existing image-only PDF the same way, after rendering it at `resolution_dpi` with `pdftoppm` (`pdftoppm_path`). It is meant for scans that predate this processing; a PDF with real text or vector graphics would only lose quality.
 
 Every page's measurements are logged (`page analyzed`, with `content_mm2`, `color_mm2`, and `gray_mm2`), so the thresholds can be tuned from the journal.
 

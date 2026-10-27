@@ -13,8 +13,9 @@ const (
 // Thresholds are areas on the page in square millimeters, so they do not
 // depend on the scan resolution.
 type Thresholds struct {
-	// A page with less content than this is blank. Fold creases, the
-	// shadow along the paper edge, dust and isolated specks are not content.
+	// A page with less content than this is blank, unless it has color.
+	// Fold creases, the shadow along the paper edge, dust and isolated
+	// specks are not content.
 	BlankContentMM2 float64
 	// A page with more colored area than this is kept in color.
 	ColorMM2 float64
@@ -43,8 +44,9 @@ const (
 	// The paper edge and its shadow lie in this margin, punch holes (12 mm
 	// from the edge) in the wider one along the sides.
 	marginMM, sideMarginMM = 8, 16
-	// Ink is darker than this fraction of the paper's luminance.
-	inkFactor = 0.6
+	// Ink is darker than this fraction of the paper's luminance: pencil and
+	// faded receipts are, bleed-through from the other side is not.
+	inkFactor = 0.7
 	// The black and white threshold lies within these fractions of the
 	// paper's luminance.
 	thresholdMin, thresholdMax = 0.5, 0.75
@@ -145,13 +147,15 @@ func Analyze(img *Image, dpi int, t Thresholds) Analysis {
 	a.ContentMM2 = float64(contentCells(inked, cw, ch, cellMM)) * cellMM2
 	a.ColorMM2 = float64(colorCells) * cellMM2
 	a.GrayMM2 = float64(grayAreaCells(gray, cw, ch)) * cellMM2
-	a.Blank = a.ContentMM2 < t.BlankContentMM2
 	switch {
 	case a.ColorMM2 > t.ColorMM2:
 		a.Class = Color
 	case a.GrayMM2 > t.GrayMM2:
 		a.Class = Gray
 	}
+	// Faint colored writing, like a note in colored pencil, is too light to
+	// be ink but still content.
+	a.Blank = a.ContentMM2 < t.BlankContentMM2 && a.Class != Color
 	return a
 }
 

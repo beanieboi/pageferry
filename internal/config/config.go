@@ -39,6 +39,7 @@ type Config struct {
 	TIFFCPPath    string `json:"tiffcp_path"`
 	TIFF2PDFPath  string `json:"tiff2pdf_path"`
 	PDFInfoPath   string `json:"pdfinfo_path"`
+	PDFToPPMPath  string `json:"pdftoppm_path"`
 
 	MinFreeBytes       uint64 `json:"min_free_bytes"`
 	PollInterval       string `json:"poll_interval"`
@@ -63,6 +64,7 @@ func Default() Config {
 		TIFFCPPath:         "/usr/bin/tiffcp",
 		TIFF2PDFPath:       "/usr/bin/tiff2pdf",
 		PDFInfoPath:        "/usr/bin/pdfinfo",
+		PDFToPPMPath:       "/usr/bin/pdftoppm",
 		MinFreeBytes:       1 << 30,
 		PollInterval:       "5s",
 		RetryInitial:       "30s",

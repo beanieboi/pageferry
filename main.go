@@ -53,6 +53,8 @@ func dispatch(ctx context.Context, logger *slog.Logger, args []string) error {
 		return statusCommand(args[1:])
 	case "retry":
 		return retryCommand(args[1:])
+	case "reprocess":
+		return reprocessCommand(ctx, logger, args[1:])
 	case "version":
 		fmt.Println(version)
 		return nil
@@ -183,6 +185,27 @@ func retryCommand(args []string) error {
 	return store.Retry(flags.Arg(0))
 }
 
+func reprocessCommand(ctx context.Context, logger *slog.Logger, args []string) error {
+	flags := flag.NewFlagSet("reprocess", flag.ContinueOnError)
+	path := flags.String("config", configPath(), "configuration file")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 2 {
+		return errors.New("usage: pageferry reprocess [--config PATH] IN.pdf OUT.pdf")
+	}
+	c, err := config.Load(*path)
+	if err != nil {
+		return err
+	}
+	pages, err := (&capture.Capturer{Config: c, Logger: logger}).Reprocess(ctx, flags.Arg(0), flags.Arg(1))
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%d pages\n", pages)
+	return nil
+}
+
 func load(path string) (config.Config, *spool.Store, error) {
 	c, err := config.Load(path)
 	if err != nil {
@@ -215,5 +238,6 @@ Commands:
   check     Verify Paperless authentication and task tracking
   status    Show queued, submitted, and failed jobs
   retry     Retry a failed Paperless job
+  reprocess Store an existing scanned PDF the way a new scan is stored
   version   Print the build version`)
 }

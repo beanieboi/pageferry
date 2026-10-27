@@ -189,3 +189,17 @@ func TestWriteTIFF(t *testing.T) {
 		t.Fatal("bad bits per sample")
 	}
 }
+
+func TestFaintColoredNoteIsNotBlank(t *testing.T) {
+	img := a4()
+	// A short note in light blue pencil, too light to be ink.
+	for line := 0; line < 4; line++ {
+		for x := 400; x < 700; x += 6 {
+			img.fill(x, 800+line*60, x+5, 800+line*60+30, 180, 200, 250)
+		}
+	}
+	a := Analyze(img, dpi, DefaultThresholds)
+	if a.Blank || a.Class != Color {
+		t.Fatalf("got blank=%v class=%s (%+v)", a.Blank, a.Class, a)
+	}
+}

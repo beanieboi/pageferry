@@ -26,6 +26,7 @@
   "tiffcp_path": "/usr/bin/tiffcp",
   "tiff2pdf_path": "/usr/bin/tiff2pdf",
   "pdfinfo_path": "/usr/bin/pdfinfo",
+  "pdftoppm_path": "/usr/bin/pdftoppm",
   "min_free_bytes": 1073741824,
   "poll_interval": "5s",
   "retry_initial": "30s",
